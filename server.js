@@ -82,7 +82,7 @@ wss.on("connection", (ws) => {
 
     if (!ws._room || ws._room !== room) return;
 
-    if (type === "move" || type === "reset" || type === "win" || type === "draw") {
+    if (type === "move" || type === "reset" || type === "win" || type === "draw" || type === "state" || type === "state-request") {
       broadcast(room, msg, ws);
     }
   });

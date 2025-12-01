@@ -375,6 +375,7 @@
     let wsUrl = getWsUrl();
     let myColor = null;
     let isConnected = false;
+    let stateRequested = false;
 
     roomInput.value = room;
 
@@ -576,6 +577,7 @@
       room = roomInput.value.trim() || getDefaultRoom();
       roomInput.value = room;
       myColor = null; // will be assigned by server
+      stateRequested = false;
       connectWs();
     });
 
@@ -641,6 +643,7 @@
       connectBtn.disabled = false;
       connectBtn.textContent = "Connect";
       isConnected = false;
+      stateRequested = false;
     }
 
     function sendWs(payload) {
@@ -669,6 +672,10 @@
           netStatus.textContent = "Room is full. Disconnecting.";
           disconnectWs();
         }
+        if (isConnected && msg.count === 2 && myColor) {
+          // Send state to the peer once both are in
+          sendState();
+        }
       } else if (msg.type === "full") {
         netStatus.textContent = "Room already has 2 players.";
         disconnectWs();
@@ -678,6 +685,10 @@
           netStatus.textContent = `Assigned color: ${capitalize(myColor)}`;
           shareLink.textContent = `Share link: ${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}&ws=${encodeURIComponent(wsUrl)}`;
         }
+      } else if (msg.type === "state-request") {
+        sendState();
+      } else if (msg.type === "state") {
+        applyState(msg);
       }
     }
 
@@ -689,6 +700,52 @@
     function getWsUrl() {
       const params = new URLSearchParams(window.location.search);
       return params.get("ws") || "ws://localhost:3001";
+    }
+
+    function sendState() {
+      if (mode !== "online" || !isConnected || !myColor) return;
+      const payload = {
+        type: "state",
+        room,
+        size,
+        current,
+        board,
+        gameOver,
+        winning: Array.from(winningCells),
+        lastMoves,
+      };
+      sendWs(payload);
+    }
+
+    function applyState(msg) {
+      if (!msg || !msg.board || !Array.isArray(msg.board)) return;
+      size = Number(msg.size) || size;
+      boardSizeSelect.value = String(size);
+      board = msg.board.map((row) => row.slice());
+      winningCells = new Set(msg.winning || []);
+      lastMoves = msg.lastMoves || { black: null, white: null };
+      gameOver = !!msg.gameOver;
+      current = msg.current || "black";
+      moves = board.flat().filter(Boolean).length;
+      statusText.textContent = gameOver ? `${capitalize(current)} wins` : `${capitalize(current)} to move`;
+      turnIcon.className = "marker " + current;
+      renderBoardFromState();
+    }
+
+    function renderBoardFromState() {
+      boardEl.innerHTML = "";
+      boardEl.style.setProperty("--size", size);
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const btn = document.createElement("button");
+          btn.className = "cell";
+          btn.dataset.row = r;
+          btn.dataset.col = c;
+          btn.addEventListener("click", handleMove);
+          boardEl.appendChild(btn);
+        }
+      }
+      updateCells();
     }
 
     buildBoard();

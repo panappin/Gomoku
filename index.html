@@ -666,9 +666,7 @@
       } else if (msg.type === "win" || msg.type === "draw") {
         // state will already reflect after move; no action
       } else if (msg.type === "config") {
-        size = 13;
-        boardSizeSelect.value = "13";
-        buildBoard();
+        // Size fixed at 13; no rebuild to avoid wiping state
       } else if (msg.type === "players") {
         playerCountEl.textContent = `Players: ${msg.count}/2`;
         if (msg.count > 2) {
@@ -694,6 +692,7 @@
         sendState();
       } else if (msg.type === "state") {
         applyState(msg);
+        stateRequested = false;
       }
     }
 

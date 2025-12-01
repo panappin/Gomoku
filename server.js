@@ -19,15 +19,13 @@ function joinRoom(ws, room) {
   if (!rooms.has(room)) rooms.set(room, { clients: new Set(), colors: new Map() });
   const entry = rooms.get(room);
   const set = entry.clients;
-  // Limit to 2 players
-  if (set.size >= 2) {
+  const assigned = pickColor(entry);
+  if (!assigned) {
     ws.send(JSON.stringify({ type: "full", room }));
     return false;
   }
   set.add(ws);
   ws._room = room;
-  // Assign colors deterministically: first black, second white
-  const assigned = set.size === 1 ? "black" : "white";
   entry.colors.set(ws, assigned);
   ws.send(JSON.stringify({ type: "assigned", room, color: assigned }));
   broadcast(room, { type: "players", room, count: set.size, colors: Array.from(entry.colors.values()) });
@@ -48,6 +46,14 @@ function leaveRoom(ws) {
     }
   }
   ws._room = null;
+}
+
+function pickColor(entry) {
+  const used = new Set(entry.colors ? Array.from(entry.colors.values()) : []);
+  if (used.has("black") && used.has("white")) return null; // both taken
+  if (!used.has("black")) return "black";
+  if (!used.has("white")) return "white";
+  return null;
 }
 
 function broadcast(room, data, exclude) {

@@ -280,6 +280,7 @@
       <div class="title">
         Gomoku
         <span class="pill">Five-in-a-row</span>
+        <span class="pill">v0.0.5</span>
       </div>
       <div class="controls">
         <label class="muted">
@@ -674,9 +675,8 @@
           disconnectWs();
         }
         if (isConnected && msg.count === 2 && myColor) {
-          // Request and send state to resync after a reconnect
+          // Request latest state after a reconnect
           requestStateOnce();
-          sendState();
         }
       } else if (msg.type === "full") {
         netStatus.textContent = "Room already has 2 players.";

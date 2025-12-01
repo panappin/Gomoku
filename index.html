@@ -231,6 +231,35 @@
       font-size: 13px;
     }
 
+    .online-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .room-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"] {
+      background: var(--cell);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      min-width: 160px;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
     footer {
       margin-top: 12px;
       color: var(--muted);
@@ -254,11 +283,28 @@
       </div>
       <div class="controls">
         <label class="muted">
+          Mode
+          <select id="mode">
+            <option value="local" selected>Local</option>
+            <option value="online">Online (beta)</option>
+          </select>
+        </label>
+        <label class="muted">
           Opponent
           <select id="opponent">
             <option value="human">Human</option>
             <option value="ai-minimax" selected>AI</option>
           </select>
+        </label>
+        <label class="muted online-only" style="display:none;">
+          Room
+          <div class="room-group">
+            <input id="roomCode" type="text" autocomplete="off">
+            <button id="connectBtn" type="button">Connect</button>
+          </div>
+          <div class="note" id="shareLink"></div>
+          <div class="note" id="netStatus"></div>
+          <div class="note" id="playerCount"></div>
         </label>
         <label class="muted">
           AI plays
@@ -305,6 +351,13 @@
     const boardSizeSelect = document.getElementById("boardSize");
     const opponentSelect = document.getElementById("opponent");
     const aiPlaysSelect = document.getElementById("aiPlays");
+    const modeSelect = document.getElementById("mode");
+    const roomInput = document.getElementById("roomCode");
+    const connectBtn = document.getElementById("connectBtn");
+    const shareLink = document.getElementById("shareLink");
+    const netStatus = document.getElementById("netStatus");
+    const onlineOnly = document.querySelectorAll(".online-only");
+    const playerCountEl = document.getElementById("playerCount");
 
     let size = Number(boardSizeSelect.value);
     let board = [];
@@ -316,6 +369,14 @@
     let aiEnabled = opponentSelect.value.startsWith("ai");
     let aiColor = aiPlaysSelect.value;
     let aiMode = opponentSelect.value; // ai-minimax
+    let mode = "local";
+    let ws = null;
+    let room = getDefaultRoom();
+    let wsUrl = getWsUrl();
+    let myColor = null;
+    let isConnected = false;
+
+    roomInput.value = room;
 
     function key(r, c) {
       return `${r}-${c}`;
@@ -351,7 +412,7 @@
     function handleMove(event) {
       const r = Number(event.currentTarget.dataset.row);
       const c = Number(event.currentTarget.dataset.col);
-      playMove(r, c);
+      playMove(r, c, false);
     }
 
     function updateCells() {
@@ -369,9 +430,14 @@
       }
     }
 
-    function playMove(r, c) {
+    function playMove(r, c, fromRemote = false, forcedColor = null) {
       if (gameOver) return;
+      if (!fromRemote && mode === "online" && current !== myColor) return;
       if (board[r][c]) return;
+
+      if (fromRemote && forcedColor) {
+        current = forcedColor;
+      }
 
       board[r][c] = current;
       moves += 1;
@@ -384,6 +450,7 @@
         statusText.textContent = `${capitalize(current)} wins`;
         turnIcon.className = "marker " + current;
         updateCells();
+        if (!fromRemote) sendWs({ type: "win", room });
         return;
       }
 
@@ -391,6 +458,7 @@
         gameOver = true;
         statusText.textContent = "Draw - board is full";
         updateCells();
+        if (!fromRemote) sendWs({ type: "draw", room });
         return;
       }
 
@@ -400,6 +468,9 @@
       updateCells();
 
       maybeAiTurn();
+      if (!fromRemote) {
+        sendWs({ type: "move", room, row: r, col: c, color: board[r][c] });
+      }
     }
 
     function detectWin(r, c, color) {
@@ -438,6 +509,7 @@
     }
 
     function maybeAiTurn() {
+      if (mode === "online") return;
       if (!aiEnabled) return;
       if (gameOver) return;
       if (current !== aiColor) return;
@@ -451,7 +523,10 @@
       }, 120);
     }
 
-    resetBtn.addEventListener("click", buildBoard);
+    resetBtn.addEventListener("click", () => {
+      buildBoard();
+      sendWs({ type: "reset", room });
+    });
 
     boardSizeSelect.addEventListener("change", (e) => {
       size = Number(e.target.value);
@@ -468,6 +543,153 @@
       aiColor = e.target.value;
       buildBoard();
     });
+
+    modeSelect.addEventListener("change", (e) => {
+      mode = e.target.value;
+      const online = mode === "online";
+      onlineOnly.forEach((el) => (el.style.display = online ? "block" : "none"));
+      if (online) {
+        opponentSelect.value = "human";
+        opponentSelect.disabled = true;
+        aiEnabled = false;
+        aiColor = "black";
+        aiPlaysSelect.value = "black";
+        aiPlaysSelect.disabled = true;
+        boardSizeSelect.disabled = true;
+        myColor = null;
+        connectWs();
+      } else {
+        opponentSelect.disabled = false;
+        aiPlaysSelect.disabled = false;
+        boardSizeSelect.disabled = false;
+        disconnectWs();
+      }
+      buildBoard();
+    });
+
+    connectBtn.addEventListener("click", () => {
+      if (isConnected) {
+        netStatus.textContent = "Disconnected (manual)";
+        disconnectWs();
+        return;
+      }
+      room = roomInput.value.trim() || getDefaultRoom();
+      roomInput.value = room;
+      myColor = null; // will be assigned by server
+      connectWs();
+    });
+
+    roomInput.addEventListener("input", () => {
+      room = roomInput.value.trim() || getDefaultRoom();
+      if (!isConnected) {
+        shareLink.textContent = `Share link: ${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}&ws=${encodeURIComponent(wsUrl)}`;
+      }
+    });
+
+    function connectWs() {
+      disconnectWs();
+      try {
+        ws = new WebSocket(wsUrl);
+        netStatus.textContent = "Connecting...";
+        connectBtn.disabled = true;
+        connectBtn.textContent = "Connecting...";
+        ws.addEventListener("open", () => {
+          netStatus.textContent = "Connected";
+          shareLink.textContent = `Share link: ${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}&ws=${encodeURIComponent(wsUrl)}`;
+          sendWs({ type: "join", room, size });
+          sendWs({ type: "config", room, size });
+          isConnected = true;
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Disconnect";
+        });
+        ws.addEventListener("message", (evt) => {
+          try {
+            const msg = JSON.parse(evt.data);
+            handleWsMessage(msg);
+          } catch (err) {
+            console.error("WS parse error", err);
+          }
+        });
+        ws.addEventListener("close", () => {
+          netStatus.textContent = "Disconnected";
+          playerCountEl.textContent = "";
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect";
+          isConnected = false;
+        });
+        ws.addEventListener("error", () => {
+          netStatus.textContent = "Connection error";
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect";
+          isConnected = false;
+        });
+      } catch (err) {
+        netStatus.textContent = "WebSocket failed to start";
+        connectBtn.disabled = false;
+        connectBtn.textContent = "Connect";
+      }
+    }
+
+    function disconnectWs() {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+      netStatus.textContent = "";
+      shareLink.textContent = "";
+      playerCountEl.textContent = "";
+      connectBtn.disabled = false;
+      connectBtn.textContent = "Connect";
+      isConnected = false;
+    }
+
+    function sendWs(payload) {
+      if (mode !== "online") return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify(payload));
+    }
+
+    function handleWsMessage(msg) {
+      if (!msg || msg.room !== room) return;
+      if (msg.type === "move") {
+        playMove(msg.row, msg.col, true, msg.color);
+      } else if (msg.type === "reset") {
+        buildBoard();
+      } else if (msg.type === "win" || msg.type === "draw") {
+        // state will already reflect after move; no action
+      } else if (msg.type === "config") {
+        if (msg.size && msg.size !== size) {
+          size = Number(msg.size);
+          boardSizeSelect.value = String(size);
+          buildBoard();
+        }
+      } else if (msg.type === "players") {
+        playerCountEl.textContent = `Players: ${msg.count}/2`;
+        if (msg.count > 2) {
+          netStatus.textContent = "Room is full. Disconnecting.";
+          disconnectWs();
+        }
+      } else if (msg.type === "full") {
+        netStatus.textContent = "Room already has 2 players.";
+        disconnectWs();
+      } else if (msg.type === "assigned") {
+        if (msg.color) {
+          myColor = msg.color;
+          netStatus.textContent = `Assigned color: ${capitalize(myColor)}`;
+          shareLink.textContent = `Share link: ${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}&ws=${encodeURIComponent(wsUrl)}`;
+        }
+      }
+    }
+
+    function getDefaultRoom() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("room") || `room-${Math.random().toString(36).slice(2, 6)}`;
+    }
+
+    function getWsUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("ws") || "ws://localhost:3001";
+    }
 
     buildBoard();
   </script>

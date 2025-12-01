@@ -316,9 +316,7 @@
         <label class="muted">
           Board
           <select id="boardSize">
-            <option value="13">13 x 13</option>
-            <option value="15" selected>15 x 15</option>
-            <option value="19">19 x 19</option>
+            <option value="13" selected>13 x 13</option>
           </select>
         </label>
         <button id="resetBtn">Restart</button>
@@ -359,7 +357,7 @@
     const onlineOnly = document.querySelectorAll(".online-only");
     const playerCountEl = document.getElementById("playerCount");
 
-    let size = Number(boardSizeSelect.value);
+    let size = 13;
     let board = [];
     let current = "black";
     let moves = 0;
@@ -433,7 +431,13 @@
 
     function playMove(r, c, fromRemote = false, forcedColor = null) {
       if (gameOver) return;
-      if (!fromRemote && mode === "online" && current !== myColor) return;
+      if (!fromRemote && mode === "online") {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          netStatus.textContent = "Not connected; cannot move.";
+          return;
+        }
+        if (current !== myColor) return;
+      }
       if (board[r][c]) return;
 
       if (fromRemote && forcedColor) {
@@ -529,8 +533,9 @@
       sendWs({ type: "reset", room });
     });
 
-    boardSizeSelect.addEventListener("change", (e) => {
-      size = Number(e.target.value);
+    boardSizeSelect.addEventListener("change", () => {
+      size = 13;
+      boardSizeSelect.value = "13";
       buildBoard();
     });
 
@@ -661,11 +666,9 @@
       } else if (msg.type === "win" || msg.type === "draw") {
         // state will already reflect after move; no action
       } else if (msg.type === "config") {
-        if (msg.size && msg.size !== size) {
-          size = Number(msg.size);
-          boardSizeSelect.value = String(size);
-          buildBoard();
-        }
+        size = 13;
+        boardSizeSelect.value = "13";
+        buildBoard();
       } else if (msg.type === "players") {
         playerCountEl.textContent = `Players: ${msg.count}/2`;
         if (msg.count > 2) {
@@ -673,7 +676,8 @@
           disconnectWs();
         }
         if (isConnected && msg.count === 2 && myColor) {
-          // Send state to the peer once both are in
+          // Request and send state to resync after a reconnect
+          requestStateOnce();
           sendState();
         }
       } else if (msg.type === "full") {
@@ -684,6 +688,7 @@
           myColor = msg.color;
           netStatus.textContent = `Assigned color: ${capitalize(myColor)}`;
           shareLink.textContent = `Share link: ${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(room)}&ws=${encodeURIComponent(wsUrl)}`;
+          requestStateOnce();
         }
       } else if (msg.type === "state-request") {
         sendState();
@@ -700,6 +705,12 @@
     function getWsUrl() {
       const params = new URLSearchParams(window.location.search);
       return params.get("ws") || "ws://localhost:3001";
+    }
+
+    function requestStateOnce() {
+      if (stateRequested) return;
+      sendWs({ type: "state-request", room });
+      stateRequested = true;
     }
 
     function sendState() {
@@ -719,8 +730,8 @@
 
     function applyState(msg) {
       if (!msg || !msg.board || !Array.isArray(msg.board)) return;
-      size = Number(msg.size) || size;
-      boardSizeSelect.value = String(size);
+      size = 13;
+      boardSizeSelect.value = "13";
       board = msg.board.map((row) => row.slice());
       winningCells = new Set(msg.winning || []);
       lastMoves = msg.lastMoves || { black: null, white: null };

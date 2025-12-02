@@ -93,7 +93,8 @@ wss.on("connection", (ws) => {
     } else if (type === "chat") {
       const text = sanitizeText(msg.text || "");
       if (!text) return;
-      broadcast(room, { type: "chat", room, from: msg.from || "Player", text }, ws);
+      const color = msg.color === "white" ? "white" : "black";
+      broadcast(room, { type: "chat", room, from: msg.from || "Player", text, color }, ws);
     }
   });
 

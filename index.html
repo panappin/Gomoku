@@ -271,6 +271,14 @@
       margin-right: 6px;
     }
 
+    .chat-label.green {
+      color: #39ff14;
+    }
+
+    .chat-label.orange {
+      color: #ffb347;
+    }
+
     .chat-form {
       display: flex;
       gap: 8px;
@@ -771,7 +779,7 @@
         applyState(msg);
         stateRequested = false;
       } else if (msg.type === "chat") {
-        appendChat(msg.from || "Player", msg.text || "");
+        appendChat(msg.from || "Player", msg.text || "", msg.color || "black");
       }
     }
 
@@ -856,15 +864,16 @@
       if (!text) return;
       text = text.slice(0, CHAT_LIMIT);
       chatInput.value = "";
-      sendWs({ type: "chat", room, from: prettyColor(myColor || "black"), text });
-      appendChat(prettyColor(myColor || "black"), text);
+      const color = myColor || "black";
+      sendWs({ type: "chat", room, from: prettyColor(color), text, color });
+      appendChat(prettyColor(color), text, color);
     }
 
-    function appendChat(from, text) {
+    function appendChat(from, text, color = "black") {
       const entry = document.createElement("div");
       entry.className = "chat-entry";
       const label = document.createElement("span");
-      label.className = "chat-label";
+      label.className = "chat-label " + (color === "white" ? "orange" : "green");
       label.textContent = `${from}:`;
       const content = document.createElement("span");
       content.textContent = text;

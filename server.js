@@ -90,6 +90,10 @@ wss.on("connection", (ws) => {
 
     if (type === "move" || type === "reset" || type === "win" || type === "draw" || type === "state" || type === "state-request") {
       broadcast(room, msg, ws);
+    } else if (type === "chat") {
+      const text = sanitizeText(msg.text || "");
+      if (!text) return;
+      broadcast(room, { type: "chat", room, from: msg.from || "Player", text }, ws);
     }
   });
 
@@ -100,3 +104,9 @@ wss.on("connection", (ws) => {
 server.listen(PORT, () => {
   console.log(`Gomoku relay server listening on ${PORT}`);
 });
+
+function sanitizeText(str) {
+  if (typeof str !== "string") return "";
+  const trimmed = str.slice(0, 200);
+  return trimmed.replace(/</g, "").replace(/>/g, "").trim();
+}
